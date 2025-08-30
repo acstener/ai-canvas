@@ -1,20 +1,16 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
-import { getAuthUserId } from "@convex-dev/auth/server";
 
 export const createBoard = mutation({
   args: {
     title: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
     const now = Date.now();
     const boardId = await ctx.db.insert("boards", {
       title: args.title,
-      ownerId: userId,
+      ownerId: "anonymous", // No auth - everyone is anonymous
       createdAt: now,
       updatedAt: now,
     });
@@ -31,7 +27,7 @@ export const createBoard = mutation({
       boardId,
       data: initialData,
       version: 1,
-      updatedBy: userId,
+      updatedBy: "anonymous",
       updatedAt: now,
     });
 
@@ -42,12 +38,9 @@ export const createBoard = mutation({
 export const listBoards = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-
+    // Return all boards for anonymous access
     const boards = await ctx.db
       .query("boards")
-      .withIndex("by_owner", (q) => q.eq("ownerId", userId))
       .order("desc")
       .collect();
 
@@ -58,12 +51,8 @@ export const listBoards = query({
 export const getBoard = query({
   args: { boardId: v.id("boards") },
   handler: async (ctx, { boardId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
     const board = await ctx.db.get(boardId);
     if (!board) throw new Error("Board not found");
-    if (board.ownerId !== userId) throw new Error("Forbidden");
     return board;
   },
 });
@@ -71,12 +60,8 @@ export const getBoard = query({
 export const getScene = query({
   args: { boardId: v.id("boards") },
   handler: async (ctx, { boardId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
     const board = await ctx.db.get(boardId);
     if (!board) throw new Error("Board not found");
-    if (board.ownerId !== userId) throw new Error("Forbidden");
 
     const doc = await ctx.db
       .query("board_docs")
@@ -98,12 +83,8 @@ export const saveScene = mutation({
     data: v.any(),
   },
   handler: async (ctx, { boardId, expectedVersion, data }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
     const board = await ctx.db.get(boardId);
     if (!board) throw new Error("Board not found");
-    if (board.ownerId !== userId) throw new Error("Forbidden");
 
     const doc = await ctx.db
       .query("board_docs")
@@ -117,7 +98,7 @@ export const saveScene = mutation({
         boardId,
         data: data as ExcalidrawInitialDataState,
         version,
-        updatedBy: userId,
+        updatedBy: "anonymous",
         updatedAt: now,
       });
       await ctx.db.patch(boardId, { updatedAt: now });
@@ -133,7 +114,7 @@ export const saveScene = mutation({
     await ctx.db.patch(doc._id, {
       data: data as ExcalidrawInitialDataState,
       version: newVersion,
-      updatedBy: userId,
+      updatedBy: "anonymous",
       updatedAt: now,
     });
 

@@ -9,6 +9,30 @@ export type CanvasElement = {
   [key: string]: unknown;
 };
 
+// Excalidraw Skeleton types for proper arrow bindings
+export type ExcalidrawElementSkeleton = {
+  id?: string;
+  type: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  label?: {
+    text: string;
+    fontSize?: number;
+    strokeColor?: string;
+  };
+  start?: {
+    id?: string;
+    type?: string;
+  };
+  end?: {
+    id?: string;
+    type?: string;
+  };
+  [key: string]: unknown;
+};
+
 export type AINode = {
   id: string;
   type: "rectangle" | "diamond" | "ellipse" | "text";
@@ -56,11 +80,7 @@ export function clampElements<T extends CanvasElement>(elements: T[]): T[] {
   }));
 }
 
-export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasElement[] {
-  const elements: CanvasElement[] = [];
-  const nodeMap: NodeMap = new Map();
-  const now = Date.now();
-
+export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): ExcalidrawElementSkeleton[] {
   // Simple layered top-to-bottom layout to avoid overlapping nodes.
   function computeLayeredLayout(
     inputNodes: AINode[],
@@ -163,241 +183,86 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
     return pos;
   }
 
-  function measureTextBox(text: string, fontSize: number, maxWidth: number) {
-    const charWidth = fontSize * 0.6; // rough approx
-    const words = text.split(/\s+/);
-    let lineWidth = 0;
-    let lines = 1;
-    for (const word of words) {
-      const w = (word.length + 1) * charWidth; // word + space
-      if (lineWidth + w > maxWidth - TEXT_PADDING * 2) {
-        lines += 1;
-        lineWidth = w;
-      } else {
-        lineWidth += w;
-      }
-    }
-    const width = Math.min(
-      Math.max(lineWidth + TEXT_PADDING * 2, Math.min(MAX_TEXT_WIDTH, maxWidth)),
-      maxWidth
-    );
-    const lineHeight = Math.round(fontSize * 1.2);
-    const height = lines * lineHeight + TEXT_PADDING;
-    return { width, height, lines, lineHeight };
-  }
-
   const layout = computeLayeredLayout(nodes, edges);
+  const skeletonElements: ExcalidrawElementSkeleton[] = [];
 
+  // Create shapes using Excalidraw skeleton API
   for (const n of nodes) {
     const lp = layout.get(n.id);
     const nx = lp?.x ?? n.x;
     const ny = lp?.y ?? n.y;
-    const nw = lp?.w ?? n.w;
-    const nh = lp?.h ?? n.h;
-    nodeMap.set(n.id, { x: nx, y: ny, w: nw, h: nh });
+    const nw = Math.max(MIN_SHAPE_WIDTH, Math.round((lp?.w ?? n.w) * SHAPE_SCALE));
+    const nh = Math.max(MIN_SHAPE_HEIGHT, Math.round((lp?.h ?? n.h) * SHAPE_SCALE));
+
     if (n.type === "text") {
-      const content = n.text ?? "";
-      const maxWidth = Math.max(MIN_SHAPE_WIDTH, Math.round(nw * SHAPE_SCALE), MAX_TEXT_WIDTH);
-      const metrics = measureTextBox(content, TEXT_FONT_SIZE, maxWidth);
-      const textEl = {
-        type: "text",
+      // Standalone text element
+      skeletonElements.push({
         id: n.id,
+        type: "text",
         x: nx,
         y: ny,
-        width: Math.max(metrics.width, MIN_SHAPE_WIDTH),
-        height: Math.max(metrics.height, TEXT_FONT_SIZE + 12),
-        angle: 0,
-        backgroundColor: "transparent",
-        fillStyle: "solid" as const,
-        strokeColor: DEFAULTS.strokeColor,
-        strokeWidth: DEFAULTS.strokeWidth,
-      strokeStyle: DEFAULTS.strokeStyle,
-      opacity: DEFAULTS.opacity,
-      roughness: DEFAULTS.roughness,
-        roundness: null,
-        seed: now,
-        version: 1,
-        versionNonce: now + 1,
-        isDeleted: false,
-        groupIds: [],
-        boundElements: [],
-        updated: now,
-        link: null,
-        locked: false,
-        text: n.text ?? "",
+        width: nw,
+        height: nh,
+        text: n.text || "",
         fontSize: TEXT_FONT_SIZE,
-        fontFamily: 1,
-        textAlign: "left" as const,
-        verticalAlign: "top" as const,
-        lineHeight: 1.2,
-        baseline: TEXT_FONT_SIZE - 2,
-        containerId: null,
-        originalText: n.text ?? "",
-      } satisfies CanvasElement as CanvasElement;
-      elements.push(textEl);
-      continue;
-    }
-
-    const el: CanvasElement = {
-      type: n.type,
-      id: n.id,
-      x: nx,
-      y: ny,
-      width: Math.max(MIN_SHAPE_WIDTH, Math.round(nw * SHAPE_SCALE)),
-      height: Math.max(MIN_SHAPE_HEIGHT, Math.round(nh * SHAPE_SCALE)),
-      angle: 0,
-      backgroundColor: DEFAULTS.backgroundColor,
-      fillStyle: DEFAULTS.fillStyle,
-      strokeColor: DEFAULTS.strokeColor,
-      strokeWidth: DEFAULTS.strokeWidth,
-      strokeStyle: DEFAULTS.strokeStyle,
-      opacity: DEFAULTS.opacity,
-      roughness: DEFAULTS.roughness,
-      roundness: { type: 2 },
-      seed: now,
-      version: 1,
-      versionNonce: now + 1,
-      isDeleted: false,
-      groupIds: [],
-      boundElements: [],
-      updated: now,
-      link: null,
-      locked: false,
-    } satisfies CanvasElement;
-    elements.push(el);
-
-    if (n.text) {
-      // Add a label inside the shape
-      const shapeWidth = elements[elements.length - 1].width as number;
-      const shapeHeight = elements[elements.length - 1].height as number;
-      const usableWidth = Math.max(32, shapeWidth - 16);
-      const metrics = measureTextBox(n.text, LABEL_FONT_SIZE, usableWidth);
-      const labelX = nx + (shapeWidth - metrics.width) / 2;
-      const labelY = ny + (shapeHeight - metrics.height) / 2;
-      const label: CanvasElement = {
-        type: "text",
-        id: `${n.id}-label`,
-        x: Math.round(labelX),
-        y: Math.round(labelY),
-        width: Math.round(metrics.width),
-        height: Math.round(metrics.height),
-        angle: 0,
-        backgroundColor: "transparent",
-        fillStyle: "solid",
+        strokeColor: DEFAULTS.strokeColor,
+      });
+    } else {
+      // Shape with optional label
+      const shapeElement: ExcalidrawElementSkeleton = {
+        id: n.id,
+        type: n.type,
+        x: nx,
+        y: ny,
+        width: nw,
+        height: nh,
+        backgroundColor: DEFAULTS.backgroundColor,
         strokeColor: DEFAULTS.strokeColor,
         strokeWidth: DEFAULTS.strokeWidth,
-      strokeStyle: DEFAULTS.strokeStyle,
-      opacity: DEFAULTS.opacity,
-      roughness: DEFAULTS.roughness,
-        roundness: null,
-        seed: now,
-        version: 1,
-        versionNonce: now + 2,
-        isDeleted: false,
-        groupIds: [],
-        boundElements: [],
-        updated: now,
-        link: null,
-        locked: false,
-        text: n.text,
-        fontSize: LABEL_FONT_SIZE,
-        fontFamily: 1,
-        textAlign: "center",
-        verticalAlign: "middle",
-        lineHeight: 1.2,
-        baseline: Math.round(LABEL_FONT_SIZE * 0.9),
-        containerId: null,
-        originalText: n.text,
-      } satisfies CanvasElement;
-      elements.push(label);
+      };
+
+      if (n.text) {
+        shapeElement.label = {
+          text: n.text,
+          fontSize: LABEL_FONT_SIZE,
+        };
+      }
+
+      skeletonElements.push(shapeElement);
     }
   }
 
-  for (const e of edges) {
-    const from = nodeMap.get(e.from);
-    const to = nodeMap.get(e.to);
-    if (!from || !to) continue;
-    const { cx: x1, cy: y1 } = centerOf(from);
-    const { cx: x2, cy: y2 } = centerOf(to);
+  // Debug: Log what edges we're processing
+  console.log("Processing edges for arrows:", edges);
 
-    const arrow: CanvasElement = {
+  // Create arrows using proper Excalidraw skeleton bindings (no explicit coordinates)
+  for (const e of edges) {
+    const arrowElement: ExcalidrawElementSkeleton = {
       type: "arrow",
-      id: `${e.from}->${e.to}`,
-      x: Math.min(x1, x2),
-      y: Math.min(y1, y2),
-      width: Math.abs(x2 - x1),
-      height: Math.abs(y2 - y1),
-      angle: 0,
-      backgroundColor: "transparent",
-      fillStyle: "solid",
+      x: 0, // Let Excalidraw calculate
+      y: 0, // Let Excalidraw calculate  
       strokeColor: DEFAULTS.strokeColor,
       strokeWidth: DEFAULTS.strokeWidth,
-      strokeStyle: DEFAULTS.strokeStyle,
-      opacity: DEFAULTS.opacity,
-      roughness: DEFAULTS.roughness,
-      roundness: null,
-      seed: now,
-      version: 1,
-      versionNonce: now + 3,
-      isDeleted: false,
-      groupIds: [],
-      boundElements: [],
-      updated: now,
-      link: null,
-      locked: false,
-      points: [
-        [0, 0],
-        [x2 - x1, y2 - y1],
-      ],
-      startBinding: null,
-      endBinding: null,
-      startArrowhead: "dot",
-      endArrowhead: "arrow",
-    } satisfies CanvasElement;
-    elements.push(arrow);
+      start: {
+        id: e.from,
+      },
+      end: {
+        id: e.to,
+      },
+    };
+
+    // Debug: Log arrow creation
+    console.log("Creating arrow with pure binding:", arrowElement);
 
     if (e.label) {
-      const midX = (x1 + x2) / 2;
-      const midY = (y1 + y2) / 2;
-      const metrics = measureTextBox(e.label, 16, 280);
-      const label: CanvasElement = {
-        type: "text",
-        id: `${e.from}->${e.to}-label`,
-        x: Math.round(midX - metrics.width / 2),
-        y: Math.round(midY - metrics.height / 2),
-        width: Math.round(metrics.width),
-        height: Math.round(metrics.height),
-        angle: 0,
-        backgroundColor: "transparent",
-        fillStyle: "solid",
-        strokeColor: DEFAULTS.strokeColor,
-        strokeWidth: DEFAULTS.strokeWidth,
-      strokeStyle: DEFAULTS.strokeStyle,
-      opacity: DEFAULTS.opacity,
-      roughness: DEFAULTS.roughness,
-        roundness: null,
-        seed: now,
-        version: 1,
-        versionNonce: now + 4,
-        isDeleted: false,
-        groupIds: [],
-        boundElements: [],
-        updated: now,
-        link: null,
-        locked: false,
+      arrowElement.label = {
         text: e.label,
         fontSize: 16,
-        fontFamily: 1,
-        textAlign: "center",
-        verticalAlign: "middle",
-        lineHeight: 1.2,
-        baseline: 14,
-        containerId: null,
-        originalText: e.label,
-      } satisfies CanvasElement;
-      elements.push(label);
+      };
     }
+
+    skeletonElements.push(arrowElement);
   }
 
-  return clampElements(elements);
+  return skeletonElements;
 }

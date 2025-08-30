@@ -1,6 +1,5 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import OpenAI from "openai";
 import { z } from "zod";
 
@@ -50,31 +49,22 @@ function clampDiagram(diagram: z.infer<typeof DiagramSchema>) {
   return { nodes: clampedNodes, edges: clampedEdges };
 }
 
-// Optional in-memory rate limiter (best-effort, per runtime)
-const userRateWindowMs = 60_000; // 1 minute
-const userRateMax = 30; // max requests per window
-const userRateState = new Map<string, { windowStart: number; count: number }>();
+// Simple global rate limiter (no per-user tracking)
+let lastRequestTime = 0;
+const MIN_REQUEST_INTERVAL = 1000; // 1 second between requests
 
-function checkRateLimit(userId: string) {
+function checkRateLimit() {
   const now = Date.now();
-  const state = userRateState.get(userId);
-  if (!state || now - state.windowStart > userRateWindowMs) {
-    userRateState.set(userId, { windowStart: now, count: 1 });
-    return;
-    }
-  if (state.count >= userRateMax) {
-    throw new Error("Rate limit exceeded. Please wait a minute and try again.");
+  if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
+    throw new Error("Please wait a moment before making another request.");
   }
-  state.count += 1;
+  lastRequestTime = now;
 }
 
 export const generateDiagram = action({
   args: { prompt: v.string(), maxShapes: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    checkRateLimit(userId);
+    checkRateLimit();
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error("Server misconfigured: OPENAI_API_KEY not set");
@@ -84,12 +74,14 @@ export const generateDiagram = action({
     const maxAllowed = Math.min(args.maxShapes ?? 12, 20);
 
     const system = [
-      "You are a diagram generator.",
-      "Return a single JSON object with keys 'nodes' and 'edges'.",
+      "You are a diagram generator that creates flowcharts with connected elements.",
+      "ALWAYS return a JSON object with both 'nodes' and 'edges' arrays.",
       "Each node: {id, type, x, y, w, h, text?}.",
       "type is one of rectangle|diamond|ellipse|text.",
       `Return at most ${maxAllowed} nodes.`,
       "Each edge: {from, to, label?} where from/to reference node ids.",
+      "IMPORTANT: For flowcharts, ALWAYS create edges connecting the nodes in sequence.",
+      "For user journey/process flows, connect each step to the next with edges.",
       "Do not return any prose or markdown. JSON only.",
     ].join(" ");
 
@@ -99,7 +91,7 @@ export const generateDiagram = action({
     ].join("\n\n");
 
     const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
@@ -119,10 +111,19 @@ export const generateDiagram = action({
     // Validate shape
     const result = DiagramSchema.safeParse(parsed);
     if (!result.success) {
+      console.error("AI response validation failed:", result.error);
+      console.error("Raw AI response:", parsed);
       throw new Error(
         "The AI response did not match the expected diagram format. Please try again."
       );
     }
+
+    // Debug: Log what we're generating
+    console.log("AI generated diagram:", {
+      nodes: result.data.nodes.length,
+      edges: result.data.edges.length,
+      edgeDetails: result.data.edges
+    });
 
     // Enforce max nodes runtime as well
     const limited = {
@@ -135,13 +136,105 @@ export const generateDiagram = action({
   },
 });
 
+export const generateText = action({
+  args: { prompt: v.string() },
+  handler: async (ctx, args) => {
+    checkRateLimit();
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error("Server misconfigured: OPENAI_API_KEY not set");
+
+    const client = new OpenAI({ apiKey });
+
+    const system = [
+      "You generate text content based on the user's prompt.",
+      "Return JSON only: {\"text\": string}.",
+      "No additional fields. No prose.",
+    ].join(" ");
+
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: args.prompt },
+      ],
+      temperature: 0.7,
+      response_format: { type: "json_object" },
+    });
+
+    const content = completion.choices[0]?.message?.content ?? "";
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (err) {
+      throw new Error("The AI returned invalid JSON. Please try again.");
+    }
+
+    const TextSchema = z.object({ text: z.string().max(4000) });
+    const result = TextSchema.safeParse(parsed);
+    if (!result.success) {
+      throw new Error("The AI response did not match the expected format.");
+    }
+
+    return { text: result.data.text };
+  },
+});
+
+export const combineTexts = action({
+  args: { texts: v.array(v.string()), instruction: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    checkRateLimit();
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error("Server misconfigured: OPENAI_API_KEY not set");
+
+    const client = new OpenAI({ apiKey });
+
+    const system = [
+      "You combine and rewrite multiple text fragments into a cohesive piece.",
+      "Return JSON only: {\"text\": string}.",
+      "No additional fields. No prose.",
+    ].join(" ");
+
+    const textList = args.texts.map((text, i) => `${i + 1}. ${text}`).join("\n\n");
+    const user = [
+      args.instruction ? `Instruction: ${args.instruction}` : "Instruction: Combine these text fragments into a cohesive, well-structured piece",
+      "\n\nText fragments:",
+      textList,
+    ].join("\n");
+
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.5,
+      response_format: { type: "json_object" },
+    });
+
+    const content = completion.choices[0]?.message?.content ?? "";
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (err) {
+      throw new Error("The AI returned invalid JSON. Please try again.");
+    }
+
+    const TextSchema = z.object({ text: z.string().max(4000) });
+    const result = TextSchema.safeParse(parsed);
+    if (!result.success) {
+      throw new Error("The AI response did not match the expected format.");
+    }
+
+    return { text: result.data.text };
+  },
+});
+
 export const rewriteText = action({
   args: { text: v.string(), instruction: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    checkRateLimit(userId);
+    checkRateLimit();
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error("Server misconfigured: OPENAI_API_KEY not set");
@@ -161,7 +254,7 @@ export const rewriteText = action({
     ].join("\n");
 
     const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },

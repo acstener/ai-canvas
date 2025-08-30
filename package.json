@@ -16,6 +16,7 @@
     "@excalidraw/excalidraw": "^0.18.0",
     "convex": "^1.26.0",
     "lodash.throttle": "^4.1.1",
+    "lucide-react": "^0.542.0",
     "nanoid": "^5.0.7",
     "next": "15.2.3",
     "openai": "^5.16.0",
