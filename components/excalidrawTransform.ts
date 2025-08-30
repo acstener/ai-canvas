@@ -27,11 +27,18 @@ const DEFAULTS = {
   strokeColor: "#1e293b",
   backgroundColor: "#e2e8f0",
   fillStyle: "solid" as const,
-  strokeWidth: 1,
+  strokeWidth: 2,
   strokeStyle: "solid" as const,
   opacity: 100,
   roughness: 1,
 };
+
+// Sizing defaults to make shapes readable by default
+const SHAPE_SCALE = 1.6;
+const MIN_SHAPE_WIDTH = 160;
+const MIN_SHAPE_HEIGHT = 64;
+const TEXT_FONT_SIZE = 22;
+const LABEL_FONT_SIZE = 20;
 
 function centerOf(node: { x: number; y: number; w: number; h: number }) {
   return { cx: node.x + node.w / 2, cy: node.y + node.h / 2 };
@@ -55,13 +62,17 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
   for (const n of nodes) {
     nodeMap.set(n.id, { x: n.x, y: n.y, w: n.w, h: n.h });
     if (n.type === "text") {
+      const estimatedWidth = Math.max(
+        n.w * SHAPE_SCALE,
+        (n.text?.length ?? 0) * TEXT_FONT_SIZE * 0.6 + 16
+      );
       const textEl = {
         type: "text",
         id: n.id,
         x: n.x,
         y: n.y,
-        width: n.w,
-        height: n.h,
+        width: Math.max(estimatedWidth, MIN_SHAPE_WIDTH),
+        height: Math.max(n.h * SHAPE_SCALE, TEXT_FONT_SIZE + 12),
         angle: 0,
         backgroundColor: "transparent",
         fillStyle: "solid" as const,
@@ -81,12 +92,12 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
         link: null,
         locked: false,
         text: n.text ?? "",
-        fontSize: 20,
+        fontSize: TEXT_FONT_SIZE,
         fontFamily: 1,
         textAlign: "left" as const,
         verticalAlign: "top" as const,
         lineHeight: 1.2,
-        baseline: 18,
+        baseline: TEXT_FONT_SIZE - 2,
         containerId: null,
         originalText: n.text ?? "",
       } satisfies CanvasElement as CanvasElement;
@@ -99,8 +110,8 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
       id: n.id,
       x: n.x,
       y: n.y,
-      width: n.w,
-      height: n.h,
+      width: Math.max(MIN_SHAPE_WIDTH, Math.round(n.w * SHAPE_SCALE)),
+      height: Math.max(MIN_SHAPE_HEIGHT, Math.round(n.h * SHAPE_SCALE)),
       angle: 0,
       backgroundColor: DEFAULTS.backgroundColor,
       fillStyle: DEFAULTS.fillStyle,
@@ -129,8 +140,8 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
         id: `${n.id}-label`,
         x: n.x + 8,
         y: n.y + 8,
-        width: n.w - 16,
-        height: 24,
+        width: Math.max(MIN_SHAPE_WIDTH - 16, Math.round(n.w * SHAPE_SCALE) - 16),
+        height: LABEL_FONT_SIZE + 8,
         angle: 0,
         backgroundColor: "transparent",
         fillStyle: "solid",
@@ -150,12 +161,12 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
         link: null,
         locked: false,
         text: n.text,
-        fontSize: 18,
+        fontSize: LABEL_FONT_SIZE,
         fontFamily: 1,
         textAlign: "left",
         verticalAlign: "top",
         lineHeight: 1.2,
-        baseline: 16,
+        baseline: LABEL_FONT_SIZE - 2,
         containerId: null,
         originalText: n.text,
       } satisfies CanvasElement;
