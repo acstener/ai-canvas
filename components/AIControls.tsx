@@ -32,7 +32,7 @@ export default function AIControls({
   );
 
   return (
-    <div className="absolute top-14 right-3 w-80 bg-white/90 backdrop-blur rounded border shadow-sm p-3 space-y-2 text-sm">
+    <div className="absolute top-14 right-3 z-[1000] w-80 bg-white/90 backdrop-blur rounded border shadow-sm p-3 space-y-2 text-sm">
       <div className="font-medium">AI</div>
       {error && (
         <div className="text-red-600 text-xs">{error}</div>
