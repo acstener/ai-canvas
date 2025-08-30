@@ -61,6 +61,108 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
   const nodeMap: NodeMap = new Map();
   const now = Date.now();
 
+  // Simple layered top-to-bottom layout to avoid overlapping nodes.
+  function computeLayeredLayout(
+    inputNodes: AINode[],
+    inputEdges: AIEdge[]
+  ): Map<string, { x: number; y: number; w: number; h: number }> {
+    const nodeById = new Map(inputNodes.map((n) => [n.id, { ...n }]));
+    const incomingCounts = new Map<string, number>();
+    const outgoing = new Map<string, string[]>();
+    for (const n of inputNodes) {
+      incomingCounts.set(n.id, 0);
+      outgoing.set(n.id, []);
+    }
+    for (const e of inputEdges) {
+      if (!nodeById.has(e.from) || !nodeById.has(e.to)) continue;
+      incomingCounts.set(e.to, (incomingCounts.get(e.to) ?? 0) + 1);
+      outgoing.get(e.from)!.push(e.to);
+    }
+
+    // Kahn-like layering
+    const queue: string[] = [];
+    for (const n of inputNodes) if ((incomingCounts.get(n.id) ?? 0) === 0) queue.push(n.id);
+    if (queue.length === 0 && inputNodes.length > 0) queue.push(inputNodes[0].id);
+
+    const level = new Map<string, number>();
+    while (queue.length) {
+      const id = queue.shift()!;
+      const currentLevel = level.get(id) ?? 0;
+      for (const nxt of outgoing.get(id) ?? []) {
+        if (!level.has(nxt)) level.set(nxt, currentLevel + 1);
+        const remaining = Math.max(0, (incomingCounts.get(nxt) ?? 1) - 1);
+        incomingCounts.set(nxt, remaining);
+        if (remaining === 0) queue.push(nxt);
+      }
+      if (!level.has(id)) level.set(id, currentLevel);
+    }
+    for (const n of inputNodes) if (!level.has(n.id)) level.set(n.id, 0);
+
+    const groups = new Map<number, string[]>();
+    for (const [id, lvl] of level.entries()) {
+      if (!groups.has(lvl)) groups.set(lvl, []);
+      groups.get(lvl)!.push(id);
+    }
+    for (const ids of groups.values()) ids.sort();
+
+    // Use scaled sizes for layout measurements
+    const scaledSize = new Map<string, { w: number; h: number }>();
+    for (const n of inputNodes) {
+      scaledSize.set(n.id, {
+        w: Math.max(MIN_SHAPE_WIDTH, Math.round(n.w * SHAPE_SCALE)),
+        h: Math.max(MIN_SHAPE_HEIGHT, Math.round(n.h * SHAPE_SCALE)),
+      });
+    }
+
+    const H_MARGIN = 80;
+    const V_MARGIN = 80;
+    const H_GAP = 160;
+    const V_GAP = 160;
+
+    // Determine maximum row width and row heights
+    const levels = Array.from(groups.keys());
+    const maxLevel = levels.length ? Math.max(...levels) : 0;
+    let maxRowWidth = 0;
+    const rowHeights: number[] = [];
+    for (let lvl = 0; lvl <= maxLevel; lvl++) {
+      const ids = groups.get(lvl) ?? [];
+      let rowWidth = 0;
+      let rH = 0;
+      ids.forEach((id, idx) => {
+        const s = scaledSize.get(id)!;
+        rowWidth += s.w;
+        if (idx < ids.length - 1) rowWidth += H_GAP;
+        rH = Math.max(rH, s.h);
+      });
+      maxRowWidth = Math.max(maxRowWidth, rowWidth);
+      rowHeights[lvl] = rH;
+    }
+
+    // Position nodes centered per row
+    const pos = new Map<string, { x: number; y: number; w: number; h: number }>();
+    let yCursor = V_MARGIN;
+    for (let lvl = 0; lvl <= maxLevel; lvl++) {
+      const ids = groups.get(lvl) ?? [];
+      let rowWidth = 0;
+      ids.forEach((id, idx) => {
+        const s = scaledSize.get(id)!;
+        rowWidth += s.w;
+        if (idx < ids.length - 1) rowWidth += H_GAP;
+      });
+      let xCursor = H_MARGIN + (maxRowWidth - rowWidth) / 2;
+      for (const id of ids) {
+        const s = scaledSize.get(id)!;
+        const x = Math.round(xCursor);
+        const y = Math.round(yCursor + (rowHeights[lvl] - s.h) / 2);
+        pos.set(id, { x, y, w: s.w, h: s.h });
+        xCursor += s.w + H_GAP;
+      }
+      yCursor += rowHeights[lvl] + V_GAP;
+    }
+
+    return pos;
+  }
+
   function measureTextBox(text: string, fontSize: number, maxWidth: number) {
     const charWidth = fontSize * 0.6; // rough approx
     const words = text.split(/\s+/);
@@ -84,17 +186,24 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
     return { width, height, lines, lineHeight };
   }
 
+  const layout = computeLayeredLayout(nodes, edges);
+
   for (const n of nodes) {
-    nodeMap.set(n.id, { x: n.x, y: n.y, w: n.w, h: n.h });
+    const lp = layout.get(n.id);
+    const nx = lp?.x ?? n.x;
+    const ny = lp?.y ?? n.y;
+    const nw = lp?.w ?? n.w;
+    const nh = lp?.h ?? n.h;
+    nodeMap.set(n.id, { x: nx, y: ny, w: nw, h: nh });
     if (n.type === "text") {
       const content = n.text ?? "";
-      const maxWidth = Math.max(MIN_SHAPE_WIDTH, Math.round(n.w * SHAPE_SCALE), MAX_TEXT_WIDTH);
+      const maxWidth = Math.max(MIN_SHAPE_WIDTH, Math.round(nw * SHAPE_SCALE), MAX_TEXT_WIDTH);
       const metrics = measureTextBox(content, TEXT_FONT_SIZE, maxWidth);
       const textEl = {
         type: "text",
         id: n.id,
-        x: n.x,
-        y: n.y,
+        x: nx,
+        y: ny,
         width: Math.max(metrics.width, MIN_SHAPE_WIDTH),
         height: Math.max(metrics.height, TEXT_FONT_SIZE + 12),
         angle: 0,
@@ -132,10 +241,10 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
     const el: CanvasElement = {
       type: n.type,
       id: n.id,
-      x: n.x,
-      y: n.y,
-      width: Math.max(MIN_SHAPE_WIDTH, Math.round(n.w * SHAPE_SCALE)),
-      height: Math.max(MIN_SHAPE_HEIGHT, Math.round(n.h * SHAPE_SCALE)),
+      x: nx,
+      y: ny,
+      width: Math.max(MIN_SHAPE_WIDTH, Math.round(nw * SHAPE_SCALE)),
+      height: Math.max(MIN_SHAPE_HEIGHT, Math.round(nh * SHAPE_SCALE)),
       angle: 0,
       backgroundColor: DEFAULTS.backgroundColor,
       fillStyle: DEFAULTS.fillStyle,
@@ -163,8 +272,8 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
       const shapeHeight = elements[elements.length - 1].height as number;
       const usableWidth = Math.max(32, shapeWidth - 16);
       const metrics = measureTextBox(n.text, LABEL_FONT_SIZE, usableWidth);
-      const labelX = n.x + (shapeWidth - metrics.width) / 2;
-      const labelY = n.y + (shapeHeight - metrics.height) / 2;
+      const labelX = nx + (shapeWidth - metrics.width) / 2;
+      const labelY = ny + (shapeHeight - metrics.height) / 2;
       const label: CanvasElement = {
         type: "text",
         id: `${n.id}-label`,
