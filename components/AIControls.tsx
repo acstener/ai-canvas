@@ -77,7 +77,6 @@ export default function AIControls({
           {loading ? "Generating…" : "Generate"}
         </button>
       </div>
-
       {hasTextSelection && (
         <div className="pt-2 border-t space-y-2">
           <div className="text-xs">Rewrite selection</div>

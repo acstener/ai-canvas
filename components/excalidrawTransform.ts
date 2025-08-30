@@ -39,6 +39,8 @@ const MIN_SHAPE_WIDTH = 160;
 const MIN_SHAPE_HEIGHT = 64;
 const TEXT_FONT_SIZE = 22;
 const LABEL_FONT_SIZE = 20;
+const MAX_TEXT_WIDTH = 360;
+const TEXT_PADDING = 12;
 
 function centerOf(node: { x: number; y: number; w: number; h: number }) {
   return { cx: node.x + node.w / 2, cy: node.y + node.h / 2 };
@@ -59,20 +61,42 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
   const nodeMap: NodeMap = new Map();
   const now = Date.now();
 
+  function measureTextBox(text: string, fontSize: number, maxWidth: number) {
+    const charWidth = fontSize * 0.6; // rough approx
+    const words = text.split(/\s+/);
+    let lineWidth = 0;
+    let lines = 1;
+    for (const word of words) {
+      const w = (word.length + 1) * charWidth; // word + space
+      if (lineWidth + w > maxWidth - TEXT_PADDING * 2) {
+        lines += 1;
+        lineWidth = w;
+      } else {
+        lineWidth += w;
+      }
+    }
+    const width = Math.min(
+      Math.max(lineWidth + TEXT_PADDING * 2, Math.min(MAX_TEXT_WIDTH, maxWidth)),
+      maxWidth
+    );
+    const lineHeight = Math.round(fontSize * 1.2);
+    const height = lines * lineHeight + TEXT_PADDING;
+    return { width, height, lines, lineHeight };
+  }
+
   for (const n of nodes) {
     nodeMap.set(n.id, { x: n.x, y: n.y, w: n.w, h: n.h });
     if (n.type === "text") {
-      const estimatedWidth = Math.max(
-        n.w * SHAPE_SCALE,
-        (n.text?.length ?? 0) * TEXT_FONT_SIZE * 0.6 + 16
-      );
+      const content = n.text ?? "";
+      const maxWidth = Math.max(MIN_SHAPE_WIDTH, Math.round(n.w * SHAPE_SCALE), MAX_TEXT_WIDTH);
+      const metrics = measureTextBox(content, TEXT_FONT_SIZE, maxWidth);
       const textEl = {
         type: "text",
         id: n.id,
         x: n.x,
         y: n.y,
-        width: Math.max(estimatedWidth, MIN_SHAPE_WIDTH),
-        height: Math.max(n.h * SHAPE_SCALE, TEXT_FONT_SIZE + 12),
+        width: Math.max(metrics.width, MIN_SHAPE_WIDTH),
+        height: Math.max(metrics.height, TEXT_FONT_SIZE + 12),
         angle: 0,
         backgroundColor: "transparent",
         fillStyle: "solid" as const,
@@ -135,13 +159,19 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
 
     if (n.text) {
       // Add a label inside the shape
+      const shapeWidth = elements[elements.length - 1].width as number;
+      const shapeHeight = elements[elements.length - 1].height as number;
+      const usableWidth = Math.max(32, shapeWidth - 16);
+      const metrics = measureTextBox(n.text, LABEL_FONT_SIZE, usableWidth);
+      const labelX = n.x + (shapeWidth - metrics.width) / 2;
+      const labelY = n.y + (shapeHeight - metrics.height) / 2;
       const label: CanvasElement = {
         type: "text",
         id: `${n.id}-label`,
-        x: n.x + 8,
-        y: n.y + 8,
-        width: Math.max(MIN_SHAPE_WIDTH - 16, Math.round(n.w * SHAPE_SCALE) - 16),
-        height: LABEL_FONT_SIZE + 8,
+        x: Math.round(labelX),
+        y: Math.round(labelY),
+        width: Math.round(metrics.width),
+        height: Math.round(metrics.height),
         angle: 0,
         backgroundColor: "transparent",
         fillStyle: "solid",
@@ -163,10 +193,10 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
         text: n.text,
         fontSize: LABEL_FONT_SIZE,
         fontFamily: 1,
-        textAlign: "left",
-        verticalAlign: "top",
+        textAlign: "center",
+        verticalAlign: "middle",
         lineHeight: 1.2,
-        baseline: LABEL_FONT_SIZE - 2,
+        baseline: Math.round(LABEL_FONT_SIZE * 0.9),
         containerId: null,
         originalText: n.text,
       } satisfies CanvasElement;
@@ -220,13 +250,14 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
     if (e.label) {
       const midX = (x1 + x2) / 2;
       const midY = (y1 + y2) / 2;
+      const metrics = measureTextBox(e.label, 16, 280);
       const label: CanvasElement = {
         type: "text",
         id: `${e.from}->${e.to}-label`,
-        x: midX + 6,
-        y: midY + 6,
-        width: 200,
-        height: 24,
+        x: Math.round(midX - metrics.width / 2),
+        y: Math.round(midY - metrics.height / 2),
+        width: Math.round(metrics.width),
+        height: Math.round(metrics.height),
         angle: 0,
         backgroundColor: "transparent",
         fillStyle: "solid",
@@ -249,7 +280,7 @@ export function toExcalidrawElements(nodes: AINode[], edges: AIEdge[]): CanvasEl
         fontSize: 16,
         fontFamily: 1,
         textAlign: "center",
-        verticalAlign: "top",
+        verticalAlign: "middle",
         lineHeight: 1.2,
         baseline: 14,
         containerId: null,
