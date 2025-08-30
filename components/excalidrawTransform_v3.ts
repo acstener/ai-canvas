@@ -11,7 +11,7 @@ const MIN_SHAPE_WIDTH = 160;
 const MIN_SHAPE_HEIGHT = 64;
 const SHAPE_SCALE = 1.6;
 
-export async function toExcalidrawElementsV3(nodes: AINode[], edges: AIEdge[]): Promise<any[]> {
+export async function toExcalidrawElementsV3(nodes: AINode[], edges: AIEdge[]): Promise<unknown[]> {
   console.log("=== VARIATION 3: POST-CONVERSION DEBUG ===");
   
   // Create basic skeleton
@@ -45,15 +45,16 @@ export async function toExcalidrawElementsV3(nodes: AINode[], edges: AIEdge[]): 
   
   // Convert to Excalidraw elements
   const { convertToExcalidrawElements } = await import("@excalidraw/excalidraw");
-  const convertedElements = convertToExcalidrawElements(skeletonElements);
+  const convertedElements = convertToExcalidrawElements(skeletonElements as never);
   
   console.log("After convertToExcalidrawElements:", convertedElements);
   
   // NOW manually add arrows to the converted elements
   const elementMap = new Map();
-  convertedElements.forEach((el: any) => {
-    if (el.id && el.id.match(/^\d+$/)) { // Our node IDs are numbers
-      elementMap.set(el.id, el);
+  convertedElements.forEach((el: Record<string, unknown>) => {
+    const id = el.id as string;
+    if (id && typeof id === "string" && id.match(/^\d+$/)) { // Our node IDs are numbers
+      elementMap.set(id, el);
     }
   });
   
@@ -115,7 +116,7 @@ export async function toExcalidrawElementsV3(nodes: AINode[], edges: AIEdge[]): 
     };
     
     console.log("Created manual arrow:", arrow);
-    convertedElements.push(arrow);
+    convertedElements.push(arrow as never);
   }
   
   console.log("Final elements with manual arrows:", convertedElements);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toExcalidrawElementsV1 } from "./excalidrawTransform_v1";
@@ -11,9 +11,9 @@ export default function AIControls({
   getSelection,
   busy,
 }: {
-  onInsert: (elements: any[]) => void;
+  onInsert: (elements: unknown[]) => void;
   onRewriteSelected: (updates: Record<string, string>) => void;
-  getSelection: () => { ids: string[]; elements: any[] };
+  getSelection: () => { ids: string[]; elements: unknown[] };
   busy: boolean;
 }) {
   const generateDiagram = useAction(api.ai.generateDiagram);
@@ -39,7 +39,10 @@ export default function AIControls({
       try {
         const selection = getSelection();
         const textElements = selection.elements.filter(
-          (el) => el.type === "text" && (el as any).text?.trim()
+          (el): el is { type: string; text?: string } => 
+            typeof el === "object" && el !== null && 
+            (el as { type?: string }).type === "text" && 
+            Boolean((el as { text?: string }).text?.trim())
         );
         
         const newState = {
@@ -206,9 +209,12 @@ export default function AIControls({
                 try {
                   const currentSelection = getSelection();
                   const textElements = currentSelection.elements.filter(
-                    (el) => el.type === "text" && (el as any).text?.trim()
+                    (el): el is { type: string; text?: string } =>
+                      typeof el === "object" && el !== null &&
+                      (el as { type?: string }).type === "text" &&
+                      Boolean((el as { text?: string }).text?.trim())
                   );
-                  const texts = textElements.map((el) => (el as any).text);
+                  const texts = textElements.map((el) => el.text!);
                   
                   const res = await combineTexts({ texts, instruction: combineInstruction });
                   const combinedElement = createTextElement(res.text);
@@ -247,11 +253,15 @@ export default function AIControls({
                   const updates: Record<string, string> = {};
                   // naive per-element calls for MVP
                   for (const el of currentSelection.elements) {
-                    if (el.type !== "text") continue;
-                    const curText = (el as unknown as { text?: string }).text ?? "";
+                    if (typeof el !== "object" || el === null) continue;
+                    const element = el as { type?: string; text?: string; id?: string };
+                    if (element.type !== "text") continue;
+                    const curText = element.text ?? "";
                     if (!curText.trim()) continue;
                     const res = await rewriteText({ text: curText, instruction });
-                    updates[el.id] = res.text;
+                    if (element.id) {
+                      updates[element.id] = res.text;
+                    }
                   }
                   if (Object.keys(updates).length > 0) {
                     onRewriteSelected(updates);

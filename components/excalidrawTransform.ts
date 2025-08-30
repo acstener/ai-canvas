@@ -45,8 +45,6 @@ export type AINode = {
 
 export type AIEdge = { from: string; to: string; label?: string };
 
-type NodeMap = Map<string, { x: number; y: number; w: number; h: number }>;
-
 const DEFAULTS = {
   strokeColor: "#1e293b",
   backgroundColor: "#e2e8f0",
@@ -63,13 +61,6 @@ const MIN_SHAPE_WIDTH = 160;
 const MIN_SHAPE_HEIGHT = 64;
 const TEXT_FONT_SIZE = 22;
 const LABEL_FONT_SIZE = 20;
-const MAX_TEXT_WIDTH = 360;
-const TEXT_PADDING = 12;
-
-function centerOf(node: { x: number; y: number; w: number; h: number }) {
-  return { cx: node.x + node.w / 2, cy: node.y + node.h / 2 };
-}
-
 export function clampElements<T extends CanvasElement>(elements: T[]): T[] {
   const MIN_COORD = -5000;
   const MAX_COORD = 5000;

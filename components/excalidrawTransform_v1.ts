@@ -1,5 +1,5 @@
 // VARIATION 1: Manual arrow creation with proper boundary intersection
-import { ExcalidrawElementSkeleton, AINode, AIEdge } from "./excalidrawTransform";
+import { AINode, AIEdge } from "./excalidrawTransform";
 
 const DEFAULTS = {
   strokeColor: "#1e293b",
@@ -34,7 +34,7 @@ function calculateOptimalShapeSize(text: string, fontSize: number): {width: numb
   
   // For very long text, limit width and allow more height for wrapping
   const maxWidth = 300;
-  let width = Math.min(minWidth, maxWidth);
+  const width = Math.min(minWidth, maxWidth);
   
   // Estimate height based on text wrapping
   const charsPerLine = Math.floor((width - padding) / (fontSize * 0.6));
@@ -52,8 +52,6 @@ function getShapeEdgePoints(from: {x: number, y: number, w: number, h: number},
   const fromCenter = { x: from.x + from.w/2, y: from.y + from.h/2 };
   const toCenter = { x: to.x + to.w/2, y: to.y + to.h/2 };
   
-  const dx = toCenter.x - fromCenter.x;
-  const dy = toCenter.y - fromCenter.y;
   
   // For vertical layout, always connect bottom to top with small gap
   const gap = 8; // pixels gap from shape edge
@@ -71,8 +69,8 @@ function getShapeEdgePoints(from: {x: number, y: number, w: number, h: number},
   return { from: fromPoint, to: toPoint };
 }
 
-export function toExcalidrawElementsV1(nodes: AINode[], edges: AIEdge[]): any[] {
-  const elements: any[] = [];
+export function toExcalidrawElementsV1(nodes: AINode[], edges: AIEdge[]): unknown[] {
+  const elements: unknown[] = [];
   const nodePositions = new Map<string, {x: number, y: number, w: number, h: number}>();
   const now = Date.now();
   

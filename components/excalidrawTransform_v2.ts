@@ -59,7 +59,8 @@ export function toExcalidrawElementsV2(nodes: AINode[], edges: AIEdge[]): Excali
     
     const arrowElement: ExcalidrawElementSkeleton = {
       type: "arrow",
-      // NO x,y coordinates - let Excalidraw handle it
+      x: 0,
+      y: 0,
       strokeColor: DEFAULTS.strokeColor,
       strokeWidth: DEFAULTS.strokeWidth,
       start: {

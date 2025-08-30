@@ -23,7 +23,7 @@ export default function ExcalidrawCanvas({
   const scene = useQuery(api.boards.getScene, { boardId });
   const saveScene = useMutation(api.boards.saveScene);
   const lastServerVersionRef = useRef<number>(scene?.version ?? 0);
-  const apiRef = useRef<any | null>(null);
+  const apiRef = useRef<unknown | null>(null);
   const [savedState, setSavedState] = useState<"idle" | "saving" | "saved">(
     "idle"
   );
@@ -36,7 +36,7 @@ export default function ExcalidrawCanvas({
 
   const throttledSave = useMemo(
     () =>
-      throttle(async (data: any) => {
+      throttle(async (data: unknown) => {
         setSavedState("saving");
         try {
           const result = await saveScene({
@@ -54,21 +54,26 @@ export default function ExcalidrawCanvas({
     [boardId, saveScene]
   );
 
-  const initialData: any | null =
-    (scene?.data as any) ?? {
+  const initialData = 
+    scene?.data ?? {
       elements: [],
       appState: { viewBackgroundColor: "#ffffff" },
       files: {},
     };
 
-  function insertElements(newElements: any[]) {
-    const api = apiRef.current;
+  function insertElements(newElements: unknown[]) {
+    const api = apiRef.current as { 
+      getSceneElements?: () => unknown[];
+      updateScene?: (data: { elements: unknown[] }) => void;
+      onInsertElements?: (els: unknown[]) => void;
+    } | null;
     if (!api || !newElements.length) return;
     // Prefer API insertion if available (future-proof)
-    if (typeof (api as unknown as { onInsertElements?: (els: any[]) => void }).onInsertElements === "function") {
-      (api as unknown as { onInsertElements: (els: any[]) => void }).onInsertElements(newElements);
+    if (typeof api.onInsertElements === "function") {
+      api.onInsertElements(newElements);
       return;
     }
+    if (!api.getSceneElements || !api.updateScene) return;
     const existing = api.getSceneElements();
     const merged = [
       ...(existing as unknown[]),
@@ -79,8 +84,11 @@ export default function ExcalidrawCanvas({
   }
 
   function updateTextElementsById(updates: Record<string, string>) {
-    const api = apiRef.current;
-    if (!api) return;
+    const api = apiRef.current as {
+      getSceneElements?: () => unknown[];
+      updateScene?: (data: { elements: unknown[] }) => void;
+    } | null;
+    if (!api || !api.getSceneElements || !api.updateScene) return;
     const existing = api.getSceneElements();
     type AnyEl = { id: string; type: string; [k: string]: unknown };
     const updated = (existing as unknown as AnyEl[]).map((el) => {
@@ -93,14 +101,20 @@ export default function ExcalidrawCanvas({
     api.updateScene({ elements: updated });
   }
 
-  function getSelection(): { ids: string[]; elements: any[] } {
-    const api = apiRef.current;
-    if (!api) return { ids: [], elements: [] };
-    const appState = api.getAppState() as any;
-    const selectedIds = Object.keys(appState.selectedElementIds ?? {});
-    const elements = (api
+  function getSelection(): { ids: string[]; elements: unknown[] } {
+    const api = apiRef.current as {
+      getAppState?: () => Record<string, unknown>;
+      getSceneElements?: () => unknown[];
+    } | null;
+    if (!api || !api.getAppState || !api.getSceneElements) return { ids: [], elements: [] };
+    const appState = api.getAppState();
+    const selectedIds = Object.keys((appState.selectedElementIds as Record<string, unknown>) ?? {});
+    const elements = api
       .getSceneElements()
-      .filter((el) => selectedIds.includes(el.id)) as unknown) as any[];
+      .filter((el) => {
+        const element = el as { id?: string };
+        return element.id && selectedIds.includes(element.id);
+      });
     return { ids: selectedIds, elements };
   }
 
@@ -109,9 +123,11 @@ export default function ExcalidrawCanvas({
     console.log("Text:", text);
     console.log("Client coordinates:", { clientX, clientY });
     
-    const api = apiRef.current;
+    const api = apiRef.current as {
+      getAppState?: () => Record<string, unknown>;
+    } | null;
     console.log("API ref:", api);
-    if (!api) {
+    if (!api || !api.getAppState) {
       console.error("No API ref available");
       return;
     }
@@ -176,13 +192,16 @@ export default function ExcalidrawCanvas({
     }
 
     const rect = canvasElement.getBoundingClientRect();
-    const appState = api.getAppState() as any;
+    const appState = api.getAppState();
     console.log("Canvas rect:", rect);
     console.log("App state:", { offsetLeft: appState.offsetLeft, offsetTop: appState.offsetTop, zoom: appState.zoom });
     
     // Convert client coordinates to canvas coordinates accounting for zoom and pan
-    const canvasX = (clientX - rect.left - (appState.offsetLeft || 0)) / (appState.zoom?.value || 1);
-    const canvasY = (clientY - rect.top - (appState.offsetTop || 0)) / (appState.zoom?.value || 1);
+    const offsetLeft = (appState.offsetLeft as number) || 0;
+    const offsetTop = (appState.offsetTop as number) || 0;
+    const zoomValue = ((appState.zoom as { value?: number })?.value) || 1;
+    const canvasX = (clientX - rect.left - offsetLeft) / zoomValue;
+    const canvasY = (clientY - rect.top - offsetTop) / zoomValue;
     console.log("Converted canvas coordinates:", { canvasX, canvasY });
 
     const now = Date.now();
@@ -240,7 +259,7 @@ export default function ExcalidrawCanvas({
           apiRef.current = api;
         }}
         onChange={(elements, appState, files) => {
-          const data: ExcalidrawInitialDataState = { elements, appState, files };
+          const data = { elements, appState, files };
           throttledSave(data);
         }}
       />
